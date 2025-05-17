@@ -1,5 +1,7 @@
 #!/bin/bash
 
+sudo pacman -Syu git unzip --noconfirm
+
 # 1. Compile the program
 echo "Attempting to build omnipkg..."
 if gcc *.c -o omnipkg; then
