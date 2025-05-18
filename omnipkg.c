@@ -2,7 +2,7 @@
 #include <string.h>
 #include <stdlib.h>
 #include <sys/wait.h>
-#include <unistd.h> // For close() - retained, might be used by omniput.c or future additions
+#include <unistd.h> 
 #include <sys/stat.h> // For stat() in detect_distro_base
 
 // Forward declarations
@@ -34,10 +34,9 @@ void print_distro_token(const char* token_str) {
         strncpy(buffer, token_str, sizeof(buffer) - 1);
         buffer[sizeof(buffer) - 1] = '\0';
 
-        // Remove leading/trailing quotes if present (from os-release values)
         char* start = buffer;
         char* end = buffer + strlen(buffer) - 1;
-        if (*start == '"' && end > start) { // Check end > start to avoid empty "" issues
+        if (*start == '"' && end > start) { 
             start++;
             if (*end == '"') {
                 *end = '\0';
@@ -46,7 +45,7 @@ void print_distro_token(const char* token_str) {
         
         char *token = strtok(start, " ");
         while (token != NULL) {
-            if (strlen(token) > 0) { // Ensure token is not empty
+            if (strlen(token) > 0) { 
                  printf("\"%s\" ", token);
             }
             token = strtok(NULL, " ");
@@ -69,12 +68,12 @@ void detect_distro_base() {
             if (strncmp(line, "ID_LIKE=", 8) == 0) {
                 strncpy(id_like, line + 8, sizeof(id_like) - 1);
                 id_like[sizeof(id_like) - 1] = '\0';
-                id_like[strcspn(id_like, "\n")] = 0; // Remove newline
+                id_like[strcspn(id_like, "\n")] = 0; 
                 found_id_like = 1;
             } else if (strncmp(line, "ID=", 3) == 0) {
                 strncpy(id, line + 3, sizeof(id) - 1);
                 id[sizeof(id) - 1] = '\0';
-                id[strcspn(id, "\n")] = 0; // Remove newline
+                id[strcspn(id, "\n")] = 0; 
                 found_id = 1;
             }
         }
@@ -84,19 +83,16 @@ void detect_distro_base() {
             print_distro_token(id_like);
             printed_something = 1;
         }
-        // If ID_LIKE is not present or empty, ID might give a clue or be the base itself.
-        // Only print ID if ID_LIKE was not informative.
+        
         if (!printed_something && found_id && strlen(id) > 0) {
             print_distro_token(id);
             printed_something = 1;
         }
     }
 
-    // Fallback checks if /etc/os-release is not available or didn't yield results
-    // These are additive or primary if os-release fails
     struct stat st;
     if (stat("/etc/debian_version", &st) == 0) {
-        if (!strstr(id_like, "debian") && !strstr(id, "debian")) { // Avoid duplicates if already found via os-release
+        if (!strstr(id_like, "debian") && !strstr(id, "debian")) { 
              printf("\"debian\" ");
              printed_something = 1;
         }
@@ -116,7 +112,7 @@ void detect_distro_base() {
     if (stat("/etc/redhat-release", &st) == 0 || stat("/etc/centos-release", &st) == 0) {
          if (!strstr(id_like, "rhel") && !strstr(id, "rhel") &&
              !strstr(id_like, "centos") && !strstr(id, "centos")) {
-            printf("\"rhel\" "); // Group CentOS under rhel-like
+            printf("\"rhel\" "); 
             printed_something = 1;
         }
     }
@@ -133,18 +129,9 @@ void detect_distro_base() {
             printed_something = 1;
         }
     }
-    // Add more fallbacks for other distros (e.g., Slackware, Alpine) if needed.
-    // Example:
-    // if (stat("/etc/alpine-release", &st) == 0) {
-    //     if (!strstr(id_like, "alpine") && !strstr(id, "alpine")) {
-    //         printf("\"alpine\" ");
-    //         printed_something = 1;
-    //     }
-    // }
-
-
+    
     if (printed_something) {
-        printf("\n"); // Ensure a newline at the end if something was printed
+        printf("\n"); 
     } else {
         fprintf(stderr, "Could not determine distro base.\n");
     }
@@ -156,25 +143,20 @@ int main(int argc, char *argv[]) {
        fprintf(stderr, "Usage: %s <command> [args...]\n", argv[0]);
        fprintf(stderr, "Available commands:\n");
        fprintf(stderr, "  put <action> [args...]\n");
-       fprintf(stderr, "      Primary command for package operations (install, remove, update, backup, restore, updateall etc.).\n");
-       fprintf(stderr, "      Behavior is determined by omniput.c.\n");
+       fprintf(stderr, "      Primary command for package operations (e.g., install, remove).\n");
+       fprintf(stderr, "      Supported actions are determined by omniput.c.\n");
        fprintf(stderr, "      Example: %s put install <package1> [package2...]\n", argv[0]);
-       fprintf(stderr, "      Example: %s put backup <filename.txt>\n", argv[0]);
        fprintf(stderr, "  defdis\n");
        fprintf(stderr, "      Detects and prints the base distribution(s) (e.g., \"debian\" \"arch\").\n");
        return EXIT_FAILURE;
    }
 
    if (strcmp(argv[1], "put") == 0) {
-       if (argc < 3) { // At least "put" and an "action"
+       if (argc < 3) { 
            fprintf(stderr, "Usage: %s put <action> [args...]\n", argv[0]);
-           fprintf(stderr, "Actions include: install, remove, update, backup, restore, updateall, etc. (as supported by omniput.c)\n");
+           fprintf(stderr, "Supported actions (e.g., install, remove) are determined by omniput.c.\n");
            return EXIT_FAILURE;
        }
-       // run_put takes its own argc and argv.
-       // argv[0] for run_put should be the "action" (e.g., "install")
-       // argv[1]... should be the arguments to that action (e.g. package names)
-       // So, we pass (argc - 2) and &argv[2].
        run_put(argc - 2, &argv[2]);
    } else if (strcmp(argv[1], "defdis") == 0) {
        if (argc != 2) {
