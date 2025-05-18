@@ -3,7 +3,6 @@
 #include <stdlib.h>
 #include <sys/wait.h>
 #include <unistd.h> // For close()
-#include "os_detect.h" // Include our new header
 
 // Forward declarations
 void run_put(int argc, char *argv[]); // Actual definition is expected in another .c file (e.g., omniput.c)
@@ -11,7 +10,6 @@ void handle_install(int argc, char *argv[]);
 void handle_updateall();
 void handle_backup(const char *filename);
 void handle_restore(const char *filename);
-void handle_define_os(); // New handler function
 
 int execute_command(const char *command) {
     printf("Executing: %s\n", command);
@@ -34,7 +32,7 @@ int execute_command(const char *command) {
 void handle_install(int argc, char *argv[]) {
     if (argc < 2) {
         fprintf(stderr, "Usage: omnipkg install <manager> <package1> [package2...]\n");
-        fprintf(stderr, "Managers: flathub\n");
+        fprintf(stderr, "Managers: pacman, yay, flathub\n");
         return;
     }
 
@@ -42,11 +40,15 @@ void handle_install(int argc, char *argv[]) {
     char command[4096];
     size_t current_len = 0;
 
-    if (strcmp(manager, "flathub") == 0) {
+    if (strcmp(manager, "pacman") == 0) {
+        current_len = snprintf(command, sizeof(command), "sudo pacman -S --needed");
+    } else if (strcmp(manager, "yay") == 0) {
+        current_len = snprintf(command, sizeof(command), "yay -S --needed");
+    } else if (strcmp(manager, "flathub") == 0) {
         current_len = snprintf(command, sizeof(command), "flatpak install -y flathub");
     } else {
         fprintf(stderr, "Unknown package manager for install: %s\n", manager);
-        fprintf(stderr, "Available managers: flathub\n");
+        fprintf(stderr, "Available managers: pacman, yay, flathub\n");
         return;
     }
 
@@ -57,7 +59,7 @@ void handle_install(int argc, char *argv[]) {
 
     for (int i = 1; i < argc; i++) {
         size_t package_len = strlen(argv[i]);
-        if (current_len + package_len + 2 > sizeof(command)) { // +1 for space, +1 for null terminator
+        if (current_len + package_len + 2 > sizeof(command)) {
             fprintf(stderr, "Command string exceeds buffer size while adding package: %s\n", argv[i]);
             return;
         }
@@ -70,6 +72,16 @@ void handle_install(int argc, char *argv[]) {
 }
 
 void handle_updateall() {
+    printf("Updating all pacman packages...\n");
+    if (execute_command("sudo pacman -Syu") != EXIT_SUCCESS) {
+        fprintf(stderr, "Pacman update failed.\n");
+    }
+
+    printf("\nUpdating all yay (AUR and repo) packages...\n");
+    if (execute_command("yay -Syu --noconfirm") != EXIT_SUCCESS) {
+        fprintf(stderr, "Yay update failed.\n");
+    }
+
     printf("\nUpdating all flathub packages...\n");
     if (execute_command("flatpak update -y") != EXIT_SUCCESS) {
         fprintf(stderr, "Flatpak update failed.\n");
@@ -91,9 +103,35 @@ void handle_backup(const char *filename) {
     }
     printf("Backing up packages to %s\n", filename);
 
+    printf("Backing up Pacman (native) packages...\n");
+    snprintf(command, sizeof(command), "pacman -Qneq");
+    FILE *pipe = popen(command, "r");
+    if (pipe) {
+        char buffer[256];
+        while (fgets(buffer, sizeof(buffer), pipe) != NULL) {
+            fprintf(outfile, "%s", buffer);
+        }
+        pclose(pipe);
+    } else {
+        fprintf(stderr, "Failed to execute pacman -Qneq\n");
+    }
+
+    printf("Backing up AUR (foreign) packages...\n");
+    snprintf(command, sizeof(command), "pacman -Qmq");
+    pipe = popen(command, "r");
+    if (pipe) {
+        char buffer[256];
+        while (fgets(buffer, sizeof(buffer), pipe) != NULL) {
+            fprintf(outfile, "aur:%s", buffer);
+        }
+        pclose(pipe);
+    } else {
+        fprintf(stderr, "Failed to execute pacman -Qmq\n");
+    }
+    
     printf("Backing up Flatpak applications...\n");
     snprintf(command, sizeof(command), "flatpak list --app --columns=application");
-    FILE *pipe = popen(command, "r");
+    pipe = popen(command, "r");
     if (pipe) {
         char buffer[256];
         while (fgets(buffer, sizeof(buffer), pipe) != NULL) {
@@ -124,8 +162,22 @@ void handle_restore(const char *filename) {
     char line[512];
     char command[1024];
 
+    FILE *pacman_pkgs_file = tmpfile();
+    FILE *aur_pkgs_file = tmpfile();
+
+    if (!pacman_pkgs_file || !aur_pkgs_file) {
+        perror("Failed to create temporary files for package lists");
+        fclose(infile);
+        if (pacman_pkgs_file) fclose(pacman_pkgs_file);
+        if (aur_pkgs_file) fclose(aur_pkgs_file);
+        return;
+    }
+    
+    long pacman_count = 0;
+    long aur_count = 0;
+
     while (fgets(line, sizeof(line), infile) != NULL) {
-        line[strcspn(line, "\n")] = 0; // Remove newline
+        line[strcspn(line, "\n")] = 0;
 
         if (strncmp(line, "flatpak:", 8) == 0) {
             char *app_id = line + 8;
@@ -133,20 +185,79 @@ void handle_restore(const char *filename) {
                 snprintf(command, sizeof(command), "flatpak install -y flathub %s", app_id);
                 execute_command(command);
             }
+        } else if (strncmp(line, "aur:", 4) == 0) {
+            char *pkg_name = line + 4;
+             if (strlen(pkg_name) > 0) {
+                fprintf(aur_pkgs_file, "%s\n", pkg_name);
+                aur_count++;
+            }
         } else {
-            if (strlen(line) > 0) { // Only print if line is not empty and not recognized
-                fprintf(stderr, "Skipping unrecognized line in backup file: %s\n", line);
+            if (strlen(line) > 0) {
+                fprintf(pacman_pkgs_file, "%s\n", line);
+                pacman_count++;
             }
         }
     }
     fclose(infile);
 
-    printf("\nPackage restoration process attempted.\n");
-}
+    if (pacman_count > 0) {
+        printf("\nRestoring %ld Pacman packages...\n", pacman_count);
+        char temp_pacman_list_name[] = "/tmp/omnipkg_pacman_list_XXXXXX";
+        int fd = mkstemp(temp_pacman_list_name);
+        if (fd != -1) {
+            FILE* named_temp_file = fdopen(fd, "w");
+            if (named_temp_file) {
+                rewind(pacman_pkgs_file);
+                char pkg_buffer[256];
+                while(fgets(pkg_buffer, sizeof(pkg_buffer), pacman_pkgs_file)) {
+                    fputs(pkg_buffer, named_temp_file);
+                }
+                fclose(named_temp_file);
 
-void handle_define_os() {
-    const char* os_base = get_os_base_name();
-    printf("%s\n", os_base);
+                snprintf(command, sizeof(command), "sudo pacman -S --needed --noconfirm --file %s", temp_pacman_list_name);
+                execute_command(command);
+                remove(temp_pacman_list_name);
+            } else {
+                 close(fd);
+                 perror("Failed to fdopen temporary pacman list file");
+            }
+        } else {
+            perror("Failed to create named temporary file for pacman list");
+        }
+    }
+    fclose(pacman_pkgs_file);
+
+    if (aur_count > 0) {
+        printf("\nRestoring %ld AUR packages...\n", aur_count);
+        
+        char temp_aur_list_name[] = "/tmp/omnipkg_aur_list_XXXXXX";
+        int fd_aur = mkstemp(temp_aur_list_name);
+
+        if (fd_aur != -1) {
+            FILE* named_temp_aur_file = fdopen(fd_aur, "w");
+            if (named_temp_aur_file) {
+                rewind(aur_pkgs_file);
+                char pkg_buffer[256];
+                while(fgets(pkg_buffer, sizeof(pkg_buffer), aur_pkgs_file)) {
+                    fputs(pkg_buffer, named_temp_aur_file);
+                }
+                fclose(named_temp_aur_file);
+
+                snprintf(command, sizeof(command), "yay -S --needed --noconfirm --answerdiff=None --answerclean=None -a %s", temp_aur_list_name);
+                execute_command(command);
+                remove(temp_aur_list_name);
+            } else {
+                close(fd_aur);
+                perror("Failed to fdopen temporary AUR list file");
+            }
+        } else {
+             perror("Failed to create named temporary file for AUR list");
+        }
+    }
+    fclose(aur_pkgs_file);
+
+
+    printf("\nPackage restoration process attempted.\n");
 }
 
 
@@ -156,16 +267,16 @@ int main(int argc, char *argv[]) {
         fprintf(stderr, "Available commands:\n");
         fprintf(stderr, "  put <action> <package1> [package2...]\n");
         fprintf(stderr, "      Actions: install, remove, update (handled by run_put)\n");
+        fprintf(stderr, "  pacman <package1> [package2...]\n");
+        fprintf(stderr, "      (Original: Runs sudo pacman -Syu <packages...>)\n");
         fprintf(stderr, "  install <manager> <package1> [package2...]\n");
-        fprintf(stderr, "      Managers: flathub\n");
+        fprintf(stderr, "      Managers: pacman, yay, flathub\n");
         fprintf(stderr, "  updateall\n");
-        fprintf(stderr, "      Updates packages from flathub\n");
+        fprintf(stderr, "      Updates packages from pacman, yay, and flathub\n");
         fprintf(stderr, "  backup <filename.txt>\n");
-        fprintf(stderr, "      Backs up installed flathub packages\n");
+        fprintf(stderr, "      Backs up installed pacman, AUR, and flathub packages\n");
         fprintf(stderr, "  restore <filename.txt>\n");
         fprintf(stderr, "      Restores packages from a backup file\n");
-        fprintf(stderr, "  define os\n"); // New usage line
-        fprintf(stderr, "      Identifies the base operating system\n");
         return EXIT_FAILURE;
     }
 
@@ -176,10 +287,36 @@ int main(int argc, char *argv[]) {
             return EXIT_FAILURE;
         }
         run_put(argc - 2, &argv[2]);
+    } else if (strcmp(argv[1], "pacman") == 0) {
+        if (argc < 3) {
+            fprintf(stderr, "Please provide at least one package name to operate on with pacman.\n");
+            return EXIT_FAILURE;
+        }
+      
+        size_t command_len = strlen("sudo pacman -Syu") + 1;
+        for (int i = 2; i < argc; i++) {
+            command_len += strlen(argv[i]) + 1;
+        }
+
+        char *command_str = malloc(command_len); // Renamed to avoid conflict with 'command' array in other scopes
+        if (command_str == NULL) {
+            perror("Failed to allocate memory for pacman command");
+            return EXIT_FAILURE;
+        }
+
+        strcpy(command_str, "sudo pacman -Syu");
+        for (int i = 2; i < argc; i++) {
+            strcat(command_str, " ");
+            strcat(command_str, argv[i]);
+        }
+
+        execute_command(command_str);
+        free(command_str);
+
     } else if (strcmp(argv[1], "install") == 0) {
         if (argc < 4) {
             fprintf(stderr, "Usage: %s install <manager> <package1> [package2...]\n", argv[0]);
-            fprintf(stderr, "Managers: flathub\n");
+            fprintf(stderr, "Managers: pacman, yay, flathub\n");
             return EXIT_FAILURE;
         }
         handle_install(argc - 2, &argv[2]);
@@ -201,19 +338,6 @@ int main(int argc, char *argv[]) {
             return EXIT_FAILURE;
         }
         handle_restore(argv[2]);
-    } else if (strcmp(argv[1], "define") == 0) { // New command block
-        if (argc != 3) {
-            fprintf(stderr, "Usage: %s define <subcommand>\n", argv[0]);
-            fprintf(stderr, "Available subcommands for define: os\n");
-            return EXIT_FAILURE;
-        }
-        if (strcmp(argv[2], "os") == 0) {
-            handle_define_os();
-        } else {
-            fprintf(stderr, "Unknown subcommand for define: %s\n", argv[2]);
-            fprintf(stderr, "Available subcommands for define: os\n");
-            return EXIT_FAILURE;
-        }
     } else {
         fprintf(stderr, "Unknown command: %s\n", argv[1]);
         fprintf(stderr, "Run '%s' without arguments to see usage.\n", argv[0]);
@@ -222,4 +346,3 @@ int main(int argc, char *argv[]) {
 
     return EXIT_SUCCESS;
 }
-#endif
