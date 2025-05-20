@@ -1,6 +1,6 @@
 #!/bin/bash
 
-sudo pacman -Syu git unzip --noconfirm
+sudo pacman -S git unzip --noconfirm
 
 # 1. Compile the program
 echo "Attempting to build omnipkg..."
