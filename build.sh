@@ -1,8 +1,8 @@
 #!/bin/bash
 
-sudo pacman -Sy
+# sudo pacman -Sy
 
-sudo pacman -S git gcc unzip --noconfirm
+# sudo pacman -S git gcc unzip --noconfirm
 
 # 1. Compile the program
 echo "Attempting to build omnipkg..."
