@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# sudo pacman -Sy
+sudo pacman -Sy
 
 # sudo pacman -S git gcc unzip --noconfirm
 
