@@ -1,11 +1,14 @@
-sudo rm -rf cd /tmp/omnipkg-app/
+cd /tmp/
 
-sudo pacman -S git --noconfirm
+sudo rm -rf omnipkg-app/
 
-sudo git clone https://github.com/maibloom/omnipkg-app /tmp/
+git clone https://www.github.com/maibloom/omnipkg-app
 
-cd /tmp/omnipkg-app/
+cd omnipkg-app/
 
-sudo chmod +x build.sh
+sudo chmod +x *
 
-sudo bash build.sh
+if sudo bash build.sh; then
+  echo "Omnipkg has been installed successfully."
+else
+  echo "Omnipkg installation failed."
