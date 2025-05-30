@@ -2,7 +2,7 @@ sudo rm -rf cd /tmp/omnipkg-app/
 
 sudo pacman -S git --noconfirm
 
-sudo git clone https://www.github.com/maibloom/omnipkg-app /tmp/
+sudo git clone https://github.com/maibloom/omnipkg-app /tmp/
 
 cd /tmp/omnipkg-app/
 
